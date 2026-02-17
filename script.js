@@ -117,6 +117,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       tableView: document.getElementById("tableView"),
       kanbanView: document.getElementById("kanbanView"),
       taskBody: document.getElementById("taskBody"),
+      mobileTaskList: document.getElementById("mobileTaskList"),
       doneRing: document.getElementById("doneRing"),
       insDone: document.getElementById("insDone"),
       insPending: document.getElementById("insPending"),
@@ -839,6 +840,43 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       }).join("");
     }
 
+    function renderMobileTaskList(filteredTasks) {
+      if (!refs.mobileTaskList) return;
+      if (!filteredTasks.length) {
+        refs.mobileTaskList.innerHTML = "<div class='empty'>Tidak ada tugas sesuai filter.</div>";
+        return;
+      }
+
+      refs.mobileTaskList.innerHTML = filteredTasks.map((task, idx) => {
+        const overdue = isOverdue(task);
+        return `
+          <article class="mobile-task-card card-enter" style="animation-delay:${Math.min(idx * 0.03, 0.3)}s;">
+            <div class="mobile-task-head">
+              <b>${escapeHtml(task.title)}</b>
+              <span class="status ${statusClass(task.status)}">${task.status}</span>
+            </div>
+            <div class="mobile-task-pills">
+              <span class="pill ${typeClass(task.type)}">${task.type}</span>
+              <span class="pill ${priorityClass(task.priority)}">${task.priority}</span>
+              ${overdue ? "<span class='pill m-overdue'>Terlambat</span>" : ""}
+            </div>
+            <div class="mobile-task-meta">
+              <div><span>Deadline</span><strong>${formatDate(task.dueDate)}</strong></div>
+              <div><span>Estimasi</span><strong>${Number(task.estimateHours || 0).toFixed(1)} jam</strong></div>
+              <div><span>Aktual</span><strong>${Number(task.actualHours || 0).toFixed(1)} jam</strong></div>
+              <div><span>Efisiensi</span><strong>${computeEfficiency(task.estimateHours, task.actualHours, task.status)}</strong></div>
+            </div>
+            ${task.notes ? `<p class="mobile-task-note">${escapeHtml(task.notes)}</p>` : ""}
+            <div class="action-row">
+              <button class="mini" data-act="next" data-id="${task.id}">Next</button>
+              <button class="mini" data-act="addtime" data-id="${task.id}">+0.5h</button>
+              <button class="mini d" data-act="delete" data-id="${task.id}">Hapus</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
     function renderKanban(filteredTasks) {
       const grouped = {
         "To Do": [],
@@ -971,6 +1009,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     function rerender() {
       const filtered = getFilteredTasks();
       renderTable(filtered);
+      renderMobileTaskList(filtered);
       renderKanban(filtered);
       updateKPIsAndInsights();
       updateWASection();
@@ -991,6 +1030,27 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       const i = STATUS_ORDER.indexOf(current);
       if (i < 0 || i >= STATUS_ORDER.length - 1) return STATUS_ORDER[0];
       return STATUS_ORDER[i + 1];
+    }
+
+    function applyTaskAction(action, id) {
+      const idx = tasks.findIndex(t => t.id === id);
+      if (idx === -1) return;
+
+      if (action === "next") {
+        const ns = nextStatus(tasks[idx].status);
+        tasks[idx].status = ns;
+        if (ns === "Done" && !tasks[idx].completedAt) tasks[idx].completedAt = new Date().toISOString();
+        if (ns !== "Done") tasks[idx].completedAt = "";
+      } else if (action === "addtime") {
+        tasks[idx].actualHours = Number(tasks[idx].actualHours || 0) + 0.5;
+      } else if (action === "delete") {
+        tasks.splice(idx, 1);
+      } else {
+        return;
+      }
+
+      saveTasks();
+      rerender();
     }
 
     async function copyText(text) {
@@ -1304,28 +1364,17 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       refs.actualHours.value = "0";
     });
 
-    refs.taskBody.addEventListener("click", function (e) {
-      const btn = e.target.closest("button");
-      if (!btn) return;
-      const id = btn.dataset.id;
-      const act = btn.dataset.act;
-      const idx = tasks.findIndex(t => t.id === id);
-      if (idx === -1) return;
+    function bindTaskActionEvents(container) {
+      if (!container) return;
+      container.addEventListener("click", function (e) {
+        const btn = e.target.closest("button[data-act][data-id]");
+        if (!btn) return;
+        applyTaskAction(btn.dataset.act, btn.dataset.id);
+      });
+    }
 
-      if (act === "next") {
-        const ns = nextStatus(tasks[idx].status);
-        tasks[idx].status = ns;
-        if (ns === "Done" && !tasks[idx].completedAt) tasks[idx].completedAt = new Date().toISOString();
-        if (ns !== "Done") tasks[idx].completedAt = "";
-      } else if (act === "addtime") {
-        tasks[idx].actualHours = Number(tasks[idx].actualHours || 0) + 0.5;
-      } else if (act === "delete") {
-        tasks.splice(idx, 1);
-      }
-
-      saveTasks();
-      rerender();
-    });
+    bindTaskActionEvents(refs.taskBody);
+    bindTaskActionEvents(refs.mobileTaskList);
 
     refs.seedDemo.addEventListener("click", function () {
       if (!currentUser) return;
