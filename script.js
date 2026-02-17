@@ -1,5 +1,6 @@
 const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const IG_STORAGE_PREFIX = "taskflow_ig_posts_v1";
+    const FINANCE_STORAGE_PREFIX = "taskflow_finance_v1";
     const PROFILE_STORAGE_PREFIX = "taskflow_profile_v1";
     const USERS_STORAGE_KEY = "taskflow_users_v1";
     const SESSION_STORAGE_KEY = "taskflow_session_v1";
@@ -31,6 +32,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       authApp: document.getElementById("authApp"),
       authCard: document.getElementById("authCard"),
       dashboardApp: document.getElementById("dashboardApp"),
+      financeDashboardApp: document.getElementById("financeDashboardApp"),
       showLoginTab: document.getElementById("showLoginTab"),
       showSignupTab: document.getElementById("showSignupTab"),
       loginForm: document.getElementById("loginForm"),
@@ -38,6 +40,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       authMessage: document.getElementById("authMessage"),
       loginEmail: document.getElementById("loginEmail"),
       loginPassword: document.getElementById("loginPassword"),
+      loginTargetDashboard: document.getElementById("loginTargetDashboard"),
       showResetPassword: document.getElementById("showResetPassword"),
       resetForm: document.getElementById("resetForm"),
       resetEmail: document.getElementById("resetEmail"),
@@ -50,6 +53,31 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       signupPasswordConfirm: document.getElementById("signupPasswordConfirm"),
       activeUserLabel: document.getElementById("activeUserLabel"),
       logoutBtn: document.getElementById("logoutBtn"),
+      financeActiveUserLabel: document.getElementById("financeActiveUserLabel"),
+      financeLogoutBtn: document.getElementById("financeLogoutBtn"),
+      financeClock: document.getElementById("financeClock"),
+      financeBalanceChip: document.getElementById("financeBalanceChip"),
+      financeExpenseChip: document.getElementById("financeExpenseChip"),
+      financeIncomeKpi: document.getElementById("financeIncomeKpi"),
+      financeExpenseKpi: document.getElementById("financeExpenseKpi"),
+      financeNetKpi: document.getElementById("financeNetKpi"),
+      financeSavingRateKpi: document.getElementById("financeSavingRateKpi"),
+      financeForm: document.getElementById("financeForm"),
+      financeDate: document.getElementById("financeDate"),
+      financeType: document.getElementById("financeType"),
+      financeCategory: document.getElementById("financeCategory"),
+      financeMethod: document.getElementById("financeMethod"),
+      financeAmount: document.getElementById("financeAmount"),
+      financeNote: document.getElementById("financeNote"),
+      financeSeedDemo: document.getElementById("financeSeedDemo"),
+      financeClearAll: document.getElementById("financeClearAll"),
+      financeMonth: document.getElementById("financeMonth"),
+      financeMonthMeta: document.getElementById("financeMonthMeta"),
+      financeSearch: document.getElementById("financeSearch"),
+      financeFilterType: document.getElementById("financeFilterType"),
+      financeFilterMethod: document.getElementById("financeFilterMethod"),
+      financeBody: document.getElementById("financeBody"),
+      mobileFinanceList: document.getElementById("mobileFinanceList"),
       profileForm: document.getElementById("profileForm"),
       profileAvatar: document.getElementById("profileAvatar"),
       profileDisplayName: document.getElementById("profileDisplayName"),
@@ -137,7 +165,9 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
     let tasks = [];
     let igPosts = [];
+    let financeEntries = [];
     let activeView = "table";
+    let activeDashboard = "tasks";
     let currentUser = null;
     let currentProfile = null;
 
@@ -169,8 +199,26 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       return `${IG_STORAGE_PREFIX}_${normalizeEmail(email)}`;
     }
 
+    function getFinanceStorageKey(email) {
+      return `${FINANCE_STORAGE_PREFIX}_${normalizeEmail(email)}`;
+    }
+
     function getProfileStorageKey(email) {
       return `${PROFILE_STORAGE_PREFIX}_${normalizeEmail(email)}`;
+    }
+
+    function normalizeFinanceEntry(raw) {
+      const kind = raw.kind === "Expense" ? "Expense" : "Income";
+      return {
+        id: raw.id || crypto.randomUUID(),
+        date: String(raw.date || new Date().toISOString().slice(0, 10)),
+        kind,
+        category: String(raw.category || "").trim() || (kind === "Income" ? "Pemasukan Lainnya" : "Pengeluaran Lainnya"),
+        method: String(raw.method || "Bank Transfer").trim(),
+        amount: Math.max(0, Number(raw.amount) || 0),
+        note: String(raw.note || "").trim(),
+        createdAt: raw.createdAt || new Date().toISOString()
+      };
     }
 
     function defaultProfileFromUser(user) {
@@ -215,6 +263,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       refs.profileAvatar.textContent = getInitials(safeName);
       if (currentUser) {
         refs.activeUserLabel.textContent = `${safeName} (${currentUser.email})`;
+        refs.financeActiveUserLabel.textContent = `${safeName} (${currentUser.email})`;
       }
     }
 
@@ -639,23 +688,58 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       localStorage.setItem(getTaskStorageKey(currentUser.email), JSON.stringify(tasks));
     }
 
-    function startSession(user) {
+    function loadFinanceEntries(email) {
+      try {
+        const raw = localStorage.getItem(getFinanceStorageKey(email));
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveFinanceEntries() {
+      if (!currentUser) return;
+      localStorage.setItem(getFinanceStorageKey(currentUser.email), JSON.stringify(financeEntries));
+    }
+
+    function saveSession(email, dashboard) {
+      const session = {
+        email: normalizeEmail(email),
+        dashboard: dashboard === "finance" ? "finance" : "tasks"
+      };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    }
+
+    function showDashboard(dashboard) {
+      const showFinance = dashboard === "finance";
+      refs.dashboardApp.classList.toggle("hidden", showFinance);
+      refs.financeDashboardApp.classList.toggle("hidden", !showFinance);
+      refs.authApp.classList.add("hidden");
+    }
+
+    function startSession(user, targetDashboard) {
       currentUser = {
         name: String(user.name || "").trim() || user.email,
         email: normalizeEmail(user.email)
       };
-      localStorage.setItem(SESSION_STORAGE_KEY, currentUser.email);
+      activeDashboard = targetDashboard === "finance" ? "finance" : "tasks";
+      saveSession(currentUser.email, activeDashboard);
       currentProfile = loadUserProfile(currentUser);
       fillProfileForm(currentProfile);
       setProfileStatus("Data profil disimpan per akun dan tetap ada setelah logout.");
       tasks = loadTasks(currentUser.email).map(normalizeTask);
       igPosts = loadIGPosts(currentUser.email).map(normalizeIGPost);
-      refs.authApp.classList.add("hidden");
-      refs.dashboardApp.classList.remove("hidden");
+      financeEntries = loadFinanceEntries(currentUser.email).map(normalizeFinanceEntry);
+      showDashboard(activeDashboard);
       if (!refs.igDate.value) refs.igDate.value = new Date().toISOString().slice(0, 10);
       if (!refs.igTime.value) refs.igTime.value = "12:00";
+      if (!refs.financeDate.value) refs.financeDate.value = new Date().toISOString().slice(0, 10);
+      if (!refs.financeMonth.value) refs.financeMonth.value = new Date().toISOString().slice(0, 7);
       setView(activeView);
       rerender();
+      rerenderFinance();
     }
 
     function logout() {
@@ -666,24 +750,43 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       currentProfile = null;
       tasks = [];
       igPosts = [];
+      financeEntries = [];
+      activeDashboard = "tasks";
       localStorage.removeItem(SESSION_STORAGE_KEY);
       refs.dashboardApp.classList.add("hidden");
+      refs.financeDashboardApp.classList.add("hidden");
       refs.authApp.classList.remove("hidden");
       switchAuthTab("login");
       refs.loginForm.reset();
       refs.resetForm.reset();
       refs.signupForm.reset();
       refs.profileForm.reset();
+      refs.financeForm.reset();
+      refs.loginTargetDashboard.value = "tasks";
       setAuthMessage("Anda telah logout.");
     }
 
     function restoreSession() {
-      const email = normalizeEmail(localStorage.getItem(SESSION_STORAGE_KEY));
+      const rawSession = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (!rawSession) return false;
+      let email = "";
+      let dashboard = "tasks";
+      try {
+        const parsed = JSON.parse(rawSession);
+        if (parsed && typeof parsed === "object") {
+          email = normalizeEmail(parsed.email);
+          dashboard = parsed.dashboard === "finance" ? "finance" : "tasks";
+        } else if (typeof parsed === "string") {
+          email = normalizeEmail(parsed);
+        }
+      } catch (_) {
+        email = normalizeEmail(rawSession);
+      }
       if (!email) return false;
       const users = loadUsers();
       const user = users.find(u => normalizeEmail(u.email) === email);
       if (!user) return false;
-      startSession(user);
+      startSession(user, dashboard);
       return true;
     }
 
@@ -767,7 +870,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     }
 
     function updateClock() {
-      refs.clock.textContent = new Date().toLocaleString("id-ID", {
+      const nowText = new Date().toLocaleString("id-ID", {
         weekday: "short",
         day: "2-digit",
         month: "short",
@@ -776,6 +879,129 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
         minute: "2-digit",
         second: "2-digit"
       });
+      refs.clock.textContent = nowText;
+      refs.financeClock.textContent = nowText;
+    }
+
+    function formatCurrency(value) {
+      return new Intl.NumberFormat("id-ID", {
+        style: "currency",
+        currency: "IDR",
+        maximumFractionDigits: 0
+      }).format(Number(value) || 0);
+    }
+
+    function getFilteredFinanceEntries() {
+      const q = String(refs.financeSearch.value || "").trim().toLowerCase();
+      const typeFilter = refs.financeFilterType.value;
+      const methodFilter = refs.financeFilterMethod.value;
+      return financeEntries
+        .filter(entry => {
+          const textMatch =
+            !q ||
+            entry.category.toLowerCase().includes(q) ||
+            entry.note.toLowerCase().includes(q) ||
+            entry.method.toLowerCase().includes(q);
+          const typeMatch = typeFilter === "all" || entry.kind === typeFilter;
+          const methodMatch = methodFilter === "all" || entry.method === methodFilter;
+          return textMatch && typeMatch && methodMatch;
+        })
+        .sort((a, b) => {
+          const da = a.date ? new Date(a.date).getTime() : 0;
+          const db = b.date ? new Date(b.date).getTime() : 0;
+          if (db !== da) return db - da;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
+    }
+
+    function computeFinanceStats(entries) {
+      const list = Array.isArray(entries) ? entries : financeEntries;
+      const income = list.reduce((sum, item) => sum + (item.kind === "Income" ? Number(item.amount) || 0 : 0), 0);
+      const expense = list.reduce((sum, item) => sum + (item.kind === "Expense" ? Number(item.amount) || 0 : 0), 0);
+      const balance = income - expense;
+      const savingRate = income > 0 ? (balance / income) * 100 : 0;
+      return { income, expense, balance, savingRate };
+    }
+
+    function renderFinanceTable(filteredEntries) {
+      if (!filteredEntries.length) {
+        refs.financeBody.innerHTML = "<tr><td colspan='7' class='empty'>Belum ada transaksi sesuai filter.</td></tr>";
+        return;
+      }
+      refs.financeBody.innerHTML = filteredEntries.map((entry, idx) => `
+        <tr class="row-enter" style="animation-delay:${Math.min(idx * 0.03, 0.3)}s;">
+          <td>${formatDate(entry.date)}</td>
+          <td><span class="pill ${entry.kind === "Income" ? "f-income" : "f-expense"}">${entry.kind === "Income" ? "Pemasukan" : "Pengeluaran"}</span></td>
+          <td>${escapeHtml(entry.category)}</td>
+          <td>${escapeHtml(entry.method)}</td>
+          <td class="${entry.kind === "Income" ? "amount-plus" : "amount-minus"}">${formatCurrency(entry.amount)}</td>
+          <td>${entry.note ? escapeHtml(entry.note) : "-"}</td>
+          <td>
+            <div class="action-row">
+              <button class="mini d" data-fin-act="delete" data-fin-id="${entry.id}">Hapus</button>
+            </div>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function renderMobileFinanceList(filteredEntries) {
+      if (!filteredEntries.length) {
+        refs.mobileFinanceList.innerHTML = "<div class='empty'>Belum ada transaksi sesuai filter.</div>";
+        return;
+      }
+
+      refs.mobileFinanceList.innerHTML = filteredEntries.map((entry, idx) => `
+        <article class="mobile-task-card card-enter" style="animation-delay:${Math.min(idx * 0.03, 0.3)}s;">
+          <div class="mobile-task-head">
+            <b>${escapeHtml(entry.category)}</b>
+            <span class="pill ${entry.kind === "Income" ? "f-income" : "f-expense"}">${entry.kind === "Income" ? "Pemasukan" : "Pengeluaran"}</span>
+          </div>
+          <div class="mobile-task-meta">
+            <div><span>Tanggal</span><strong>${formatDate(entry.date)}</strong></div>
+            <div><span>Metode</span><strong>${escapeHtml(entry.method)}</strong></div>
+            <div><span>Nominal</span><strong class="${entry.kind === "Income" ? "amount-plus" : "amount-minus"}">${formatCurrency(entry.amount)}</strong></div>
+            <div><span>Catatan</span><strong>${entry.note ? escapeHtml(entry.note) : "-"}</strong></div>
+          </div>
+          <div class="action-row" style="margin-top:8px;">
+            <button class="mini d" data-fin-act="delete" data-fin-id="${entry.id}">Hapus</button>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function updateFinanceDashboardMetrics() {
+      const stats = computeFinanceStats(financeEntries);
+      refs.financeIncomeKpi.textContent = formatCurrency(stats.income);
+      refs.financeExpenseKpi.textContent = formatCurrency(stats.expense);
+      refs.financeNetKpi.textContent = formatCurrency(stats.balance);
+      refs.financeSavingRateKpi.textContent = `${stats.savingRate.toFixed(1)}%`;
+      refs.financeBalanceChip.textContent = formatCurrency(stats.balance);
+      refs.financeExpenseChip.textContent = formatCurrency(stats.expense);
+
+      const selectedMonth = refs.financeMonth.value || new Date().toISOString().slice(0, 7);
+      const monthData = financeEntries.filter(item => String(item.date || "").slice(0, 7) === selectedMonth);
+      const monthStats = computeFinanceStats(monthData);
+      refs.financeMonthMeta.textContent = `${selectedMonth}: ${monthData.length} transaksi | In ${formatCurrency(monthStats.income)} | Out ${formatCurrency(monthStats.expense)} | Saldo ${formatCurrency(monthStats.balance)}.`;
+    }
+
+    function rerenderFinance() {
+      const filtered = getFilteredFinanceEntries();
+      renderFinanceTable(filtered);
+      renderMobileFinanceList(filtered);
+      updateFinanceDashboardMetrics();
+    }
+
+    function applyFinanceAction(action, id) {
+      const idx = financeEntries.findIndex(entry => entry.id === id);
+      if (idx < 0) return;
+      if (action === "delete") {
+        financeEntries.splice(idx, 1);
+      } else {
+        return;
+      }
+      saveFinanceEntries();
+      rerenderFinance();
     }
 
     function getFilteredTasks() {
@@ -1139,6 +1365,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       e.preventDefault();
       const email = normalizeEmail(refs.loginEmail.value);
       const password = refs.loginPassword.value;
+      const targetDashboard = refs.loginTargetDashboard.value === "finance" ? "finance" : "tasks";
       const users = loadUsers();
       const user = users.find(u => normalizeEmail(u.email) === email);
       const passHash = hashPassword(password);
@@ -1151,7 +1378,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
       refs.loginForm.reset();
       setAuthMessage("");
-      startSession(user);
+      startSession(user, targetDashboard);
     });
 
     refs.resetForm.addEventListener("submit", function (e) {
@@ -1258,6 +1485,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     });
 
     refs.logoutBtn.addEventListener("click", logout);
+    refs.financeLogoutBtn.addEventListener("click", logout);
 
     refs.igForm.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -1376,6 +1604,68 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     bindTaskActionEvents(refs.taskBody);
     bindTaskActionEvents(refs.mobileTaskList);
 
+    function bindFinanceActionEvents(container) {
+      if (!container) return;
+      container.addEventListener("click", function (e) {
+        const btn = e.target.closest("button[data-fin-act][data-fin-id]");
+        if (!btn) return;
+        applyFinanceAction(btn.dataset.finAct, btn.dataset.finId);
+      });
+    }
+
+    bindFinanceActionEvents(refs.financeBody);
+    bindFinanceActionEvents(refs.mobileFinanceList);
+
+    refs.financeForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (!currentUser) return;
+      const entry = normalizeFinanceEntry({
+        id: crypto.randomUUID(),
+        date: refs.financeDate.value,
+        kind: refs.financeType.value,
+        category: refs.financeCategory.value,
+        method: refs.financeMethod.value,
+        amount: refs.financeAmount.value,
+        note: refs.financeNote.value,
+        createdAt: new Date().toISOString()
+      });
+
+      if (!entry.date || !entry.category || entry.amount <= 0) return;
+      financeEntries.push(entry);
+      saveFinanceEntries();
+      rerenderFinance();
+
+      refs.financeForm.reset();
+      refs.financeDate.value = new Date().toISOString().slice(0, 10);
+      refs.financeType.value = "Income";
+      refs.financeMethod.value = "Bank Transfer";
+    });
+
+    refs.financeSeedDemo.addEventListener("click", function () {
+      if (!currentUser) return;
+      const today = new Date();
+      const day = n => new Date(today.getTime() - n * 86400000).toISOString().slice(0, 10);
+      financeEntries = [
+        { date: day(0), kind: "Income", category: "Pembayaran Klien Website", method: "Bank Transfer", amount: 9500000, note: "Invoice WD-021" },
+        { date: day(0), kind: "Expense", category: "Iklan Meta Ads", method: "Virtual Account", amount: 1800000, note: "Campaign Februari" },
+        { date: day(1), kind: "Expense", category: "Langganan Hosting", method: "E-Wallet", amount: 450000, note: "Perpanjangan 1 bulan" },
+        { date: day(2), kind: "Income", category: "Project Desain Brand Kit", method: "Bank Transfer", amount: 4200000, note: "DP 60%" },
+        { date: day(3), kind: "Expense", category: "Gaji Desainer Freelance", method: "Bank Transfer", amount: 2500000, note: "Minggu ke-2" },
+        { date: day(4), kind: "Expense", category: "Operasional Tim", method: "Cash", amount: 670000, note: "Transport dan meeting" }
+      ].map(item => normalizeFinanceEntry({ ...item, id: crypto.randomUUID(), createdAt: new Date().toISOString() }));
+
+      saveFinanceEntries();
+      rerenderFinance();
+    });
+
+    refs.financeClearAll.addEventListener("click", function () {
+      if (!currentUser) return;
+      if (!confirm("Hapus semua transaksi keuangan?")) return;
+      financeEntries = [];
+      saveFinanceEntries();
+      rerenderFinance();
+    });
+
     refs.seedDemo.addEventListener("click", function () {
       if (!currentUser) return;
       const plusDays = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
@@ -1429,6 +1719,11 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       el.addEventListener("change", rerender);
     });
 
+    [refs.financeSearch, refs.financeFilterType, refs.financeFilterMethod, refs.financeMonth].forEach(el => {
+      el.addEventListener("input", rerenderFinance);
+      el.addEventListener("change", rerenderFinance);
+    });
+
     document.addEventListener("pointerdown", function (e) {
       const target = e.target.closest(".btn, .mini, .auth-tab, .view-switch button, .chip-logout");
       if (!target) return;
@@ -1449,5 +1744,6 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     if (!restoreSession()) {
       refs.authApp.classList.remove("hidden");
       refs.dashboardApp.classList.add("hidden");
+      refs.financeDashboardApp.classList.add("hidden");
       setAuthMessage("Silakan login atau buat akun karyawan terlebih dahulu.");
     }

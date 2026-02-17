@@ -30,6 +30,13 @@
           <label for="loginPassword">Password</label>
           <input id="loginPassword" type="password" minlength="6" placeholder="Minimal 6 karakter" required>
         </div>
+        <div>
+          <label for="loginTargetDashboard">Masuk ke Dashboard</label>
+          <select id="loginTargetDashboard">
+            <option value="tasks" selected>Manajemen Tugas</option>
+            <option value="finance">Keuangan</option>
+          </select>
+        </div>
         <div class="auth-inline">
           <button type="button" class="auth-link" id="showResetPassword">Lupa password?</button>
         </div>
@@ -395,6 +402,134 @@
             <div id="mobileTaskList" class="mobile-task-list"></div>
           </div>
           <div id="kanbanView" class="kanban hidden"></div>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <div class="shell hidden" id="financeDashboardApp">
+    <header class="hero finance-hero">
+      <div>
+        <span class="eyebrow">FINANCE OPS</span>
+        <h1>Bul-Workspace Keuangan</h1>
+        <p>Kelola cashflow pemasukan dan pengeluaran perusahaan, pantau saldo, dan evaluasi pengeluaran rutin secara real-time.</p>
+      </div>
+      <div class="hero-right">
+        <div class="hero-chip"><b>Waktu Saat Ini</b><br><span id="financeClock">-</span></div>
+        <div class="hero-chip"><b>Saldo Berjalan</b><br><span id="financeBalanceChip">Rp 0</span></div>
+        <div class="hero-chip"><b>Total Pengeluaran</b><br><span id="financeExpenseChip">Rp 0</span></div>
+        <div class="hero-chip">
+          <b>User Aktif</b><br><span id="financeActiveUserLabel">-</span><br>
+          <button type="button" id="financeLogoutBtn" class="chip-logout">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="kpi-grid finance-kpi-grid">
+      <article class="glass kpi"><h3>Pemasukan</h3><div class="v" id="financeIncomeKpi">Rp 0</div></article>
+      <article class="glass kpi"><h3>Pengeluaran</h3><div class="v" id="financeExpenseKpi">Rp 0</div></article>
+      <article class="glass kpi"><h3>Saldo Bersih</h3><div class="v" id="financeNetKpi">Rp 0</div></article>
+      <article class="glass kpi"><h3>Tabungan</h3><div class="v" id="financeSavingRateKpi">0%</div></article>
+    </section>
+
+    <section class="workspace">
+      <aside class="glass side">
+        <div class="block">
+          <h3>Input Transaksi</h3>
+          <form id="financeForm" class="f">
+            <div class="row">
+              <div>
+                <label for="financeDate">Tanggal</label>
+                <input id="financeDate" type="date" required>
+              </div>
+              <div>
+                <label for="financeType">Jenis</label>
+                <select id="financeType">
+                  <option value="Income">Pemasukan</option>
+                  <option value="Expense">Pengeluaran</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="financeCategory">Kategori</label>
+                <input id="financeCategory" placeholder="Contoh: Gaji, Hosting, Klien A" required>
+              </div>
+              <div>
+                <label for="financeMethod">Metode</label>
+                <select id="financeMethod">
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Cash">Cash</option>
+                  <option value="E-Wallet">E-Wallet</option>
+                  <option value="Virtual Account">Virtual Account</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label for="financeAmount">Nominal (Rp)</label>
+              <input id="financeAmount" type="number" min="0" step="1000" required>
+            </div>
+            <div>
+              <label for="financeNote">Catatan</label>
+              <textarea id="financeNote" placeholder="Detail transaksi, vendor, invoice, dll"></textarea>
+            </div>
+            <div class="btn-row">
+              <button class="btn primary" type="submit">Simpan Transaksi</button>
+              <button class="btn soft" type="button" id="financeSeedDemo">Muat Demo</button>
+            </div>
+            <div class="btn-row">
+              <button class="btn danger" type="button" id="financeClearAll">Hapus Semua Transaksi</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="block">
+          <h3>Ringkasan Bulanan</h3>
+          <div class="f">
+            <div>
+              <label for="financeMonth">Bulan Fokus</label>
+              <input id="financeMonth" type="month">
+            </div>
+          </div>
+          <p class="meta" id="financeMonthMeta">Belum ada data transaksi.</p>
+        </div>
+      </aside>
+
+      <main class="glass main">
+        <div class="toolbar">
+          <input id="financeSearch" placeholder="Cari kategori / catatan transaksi...">
+          <select id="financeFilterType">
+            <option value="all">Semua Jenis</option>
+            <option value="Income">Pemasukan</option>
+            <option value="Expense">Pengeluaran</option>
+          </select>
+          <select id="financeFilterMethod">
+            <option value="all">Semua Metode</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Cash">Cash</option>
+            <option value="E-Wallet">E-Wallet</option>
+            <option value="Virtual Account">Virtual Account</option>
+          </select>
+        </div>
+
+        <section class="task-area">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tanggal</th>
+                  <th>Jenis</th>
+                  <th>Kategori</th>
+                  <th>Metode</th>
+                  <th>Nominal</th>
+                  <th>Catatan</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="financeBody"></tbody>
+            </table>
+            <div id="mobileFinanceList" class="mobile-task-list"></div>
+          </div>
         </section>
       </main>
     </section>
