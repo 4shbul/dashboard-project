@@ -1,5 +1,6 @@
 const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const IG_STORAGE_PREFIX = "taskflow_ig_posts_v1";
+    const IG_PUZZLE_STORAGE_PREFIX = "taskflow_ig_puzzle_v1";
     const FINANCE_STORAGE_PREFIX = "taskflow_finance_v1";
     const PROFILE_STORAGE_PREFIX = "taskflow_profile_v1";
     const USERS_STORAGE_KEY = "taskflow_users_v1";
@@ -206,6 +207,10 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       return `${IG_STORAGE_PREFIX}_${normalizeEmail(email)}`;
     }
 
+    function getIGPuzzleStorageKey(email) {
+      return `${IG_PUZZLE_STORAGE_PREFIX}_${normalizeEmail(email)}`;
+    }
+
     function getFinanceStorageKey(email) {
       return `${FINANCE_STORAGE_PREFIX}_${normalizeEmail(email)}`;
     }
@@ -351,6 +356,17 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       };
     }
 
+    function normalizeIGPuzzleItem(raw) {
+      const url = String(raw && raw.url ? raw.url : "").trim();
+      if (!url) return null;
+      return {
+        id: raw && raw.id ? raw.id : crypto.randomUUID(),
+        name: String(raw && raw.name ? raw.name : "IG Image"),
+        url,
+        createdAt: raw && raw.createdAt ? raw.createdAt : new Date().toISOString()
+      };
+    }
+
     function loadIGPosts(email) {
       try {
         const raw = localStorage.getItem(getIGStorageKey(email));
@@ -365,6 +381,45 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     function saveIGPosts() {
       if (!currentUser) return;
       localStorage.setItem(getIGStorageKey(currentUser.email), JSON.stringify(igPosts));
+    }
+
+    function loadIGPuzzleImages(email) {
+      try {
+        const raw = localStorage.getItem(getIGPuzzleStorageKey(email));
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .map(normalizeIGPuzzleItem)
+          .filter(Boolean)
+          .slice(0, IG_PUZZLE_MAX_IMAGES);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveIGPuzzleImages() {
+      if (!currentUser) return false;
+      try {
+        localStorage.setItem(getIGPuzzleStorageKey(currentUser.email), JSON.stringify(igPuzzleImages));
+        return true;
+      } catch (_) {
+        refs.igPuzzleHint.textContent = "Gagal menyimpan gambar puzzle. Penyimpanan browser mungkin penuh.";
+        return false;
+      }
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          resolve(String(reader.result || ""));
+        };
+        reader.onerror = function () {
+          reject(new Error("read_failed"));
+        };
+        reader.readAsDataURL(file);
+      });
     }
 
     function revokeIGPuzzleImageUrl(item) {
