@@ -8,6 +8,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const PRIORITY_ORDER = { High: 1, Medium: 2, Low: 3 };
     const DESIGN_REPORT_THRESHOLD = 5;
     const IG_WEEKLY_TARGET = 5;
+    const IG_PUZZLE_MAX_IMAGES = 30;
     const IG_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     const IG_DAY_LABEL = {
       Monday: "Senin",
@@ -130,6 +131,11 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       igConsistency: document.getElementById("igConsistency"),
       igInsights: document.getElementById("igInsights"),
       igTimeline: document.getElementById("igTimeline"),
+      igPuzzleUpload: document.getElementById("igPuzzleUpload"),
+      igPuzzleGrid: document.getElementById("igPuzzleGrid"),
+      igPuzzleCount: document.getElementById("igPuzzleCount"),
+      igPuzzleHint: document.getElementById("igPuzzleHint"),
+      clearIgPuzzle: document.getElementById("clearIgPuzzle"),
       seedIgData: document.getElementById("seedIgData"),
       clearIgData: document.getElementById("clearIgData"),
       exportJson: document.getElementById("exportJson"),
@@ -165,6 +171,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
     let tasks = [];
     let igPosts = [];
+    let igPuzzleImages = [];
     let financeEntries = [];
     let activeView = "table";
     let activeDashboard = "tasks";
@@ -358,6 +365,102 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     function saveIGPosts() {
       if (!currentUser) return;
       localStorage.setItem(getIGStorageKey(currentUser.email), JSON.stringify(igPosts));
+    }
+
+    function revokeIGPuzzleImageUrl(item) {
+      if (!item || !item.url) return;
+      if (String(item.url).startsWith("blob:")) {
+        URL.revokeObjectURL(item.url);
+      }
+    }
+
+    function renderIGPuzzleGrid() {
+      if (!refs.igPuzzleGrid) return;
+      const imageCount = igPuzzleImages.length;
+      refs.igPuzzleCount.textContent = `${imageCount} gambar`;
+
+      if (!imageCount) {
+        refs.igPuzzleGrid.innerHTML = Array.from({ length: 9 }, function () {
+          return "<div class='ig-puzzle-placeholder' aria-hidden='true'></div>";
+        }).join("");
+        refs.igPuzzleHint.textContent = "Belum ada gambar. Upload beberapa gambar untuk preview puzzle.";
+        return;
+      }
+
+      const imageHtml = igPuzzleImages.map(function (item, idx) {
+        const name = item.name ? ` title="${escapeHtml(item.name)}"` : "";
+        return `
+          <article class="ig-puzzle-item"${name}>
+            <img src="${item.url}" alt="Preview puzzle ${idx + 1}" loading="lazy">
+            <button class="ig-puzzle-remove" type="button" data-ig-puzzle-remove="${item.id}" aria-label="Hapus gambar">x</button>
+            <span class="ig-puzzle-index">#${idx + 1}</span>
+          </article>
+        `;
+      }).join("");
+      const placeholderCount = Math.max(0, 9 - imageCount);
+      const placeholderHtml = Array.from({ length: placeholderCount }, function () {
+        return "<div class='ig-puzzle-placeholder' aria-hidden='true'></div>";
+      }).join("");
+
+      refs.igPuzzleGrid.innerHTML = imageHtml + placeholderHtml;
+      refs.igPuzzleHint.textContent = imageCount >= 9
+        ? "Urutan terbaru berada di kiri atas. Grid siap untuk review puzzle 3x3."
+        : "Urutan terbaru berada di kiri atas. Lengkapi hingga 9 gambar untuk lihat puzzle 3x3 penuh.";
+    }
+
+    function addIGPuzzleImages(fileList) {
+      if (!fileList || !fileList.length) return;
+
+      const validImages = Array.from(fileList).filter(function (file) {
+        return String(file && file.type ? file.type : "").startsWith("image/");
+      });
+
+      if (!validImages.length) {
+        refs.igPuzzleHint.textContent = "File yang dipilih bukan gambar.";
+        return;
+      }
+
+      const remainingSlots = IG_PUZZLE_MAX_IMAGES - igPuzzleImages.length;
+      if (remainingSlots <= 0) {
+        refs.igPuzzleHint.textContent = `Maksimal ${IG_PUZZLE_MAX_IMAGES} gambar. Hapus beberapa gambar dulu.`;
+        return;
+      }
+
+      const selectedImages = validImages.slice(0, remainingSlots);
+      const newItems = selectedImages.map(function (file) {
+        return {
+          id: crypto.randomUUID(),
+          name: String(file.name || "IG Image"),
+          url: URL.createObjectURL(file),
+          createdAt: new Date().toISOString()
+        };
+      });
+
+      igPuzzleImages = newItems.concat(igPuzzleImages);
+      renderIGPuzzleGrid();
+
+      if (validImages.length > selectedImages.length) {
+        refs.igPuzzleHint.textContent = `Sebagian gambar dilewati karena batas maksimal ${IG_PUZZLE_MAX_IMAGES} gambar.`;
+      }
+    }
+
+    function removeIGPuzzleImageById(id) {
+      const idx = igPuzzleImages.findIndex(function (item) {
+        return item.id === id;
+      });
+      if (idx < 0) return;
+      const [removed] = igPuzzleImages.splice(idx, 1);
+      revokeIGPuzzleImageUrl(removed);
+      renderIGPuzzleGrid();
+    }
+
+    function clearIGPuzzleImages(withConfirm) {
+      const shouldAsk = withConfirm !== false;
+      if (shouldAsk && igPuzzleImages.length && !confirm("Hapus semua gambar puzzle feed?")) return false;
+      igPuzzleImages.forEach(revokeIGPuzzleImageUrl);
+      igPuzzleImages = [];
+      renderIGPuzzleGrid();
+      return true;
     }
 
     function getIGDayFromDate(dateStr) {
@@ -731,6 +834,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       setProfileStatus("Data profil disimpan per akun dan tetap ada setelah logout.");
       tasks = loadTasks(currentUser.email).map(normalizeTask);
       igPosts = loadIGPosts(currentUser.email).map(normalizeIGPost);
+      clearIGPuzzleImages(false);
       financeEntries = loadFinanceEntries(currentUser.email).map(normalizeFinanceEntry);
       showDashboard(activeDashboard);
       if (!refs.igDate.value) refs.igDate.value = new Date().toISOString().slice(0, 10);
@@ -750,6 +854,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       currentProfile = null;
       tasks = [];
       igPosts = [];
+      clearIGPuzzleImages(false);
       financeEntries = [];
       activeDashboard = "tasks";
       localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -1240,6 +1345,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       updateKPIsAndInsights();
       updateWASection();
       renderInstagramTimeline();
+      renderIGPuzzleGrid();
     }
 
     function setView(view) {
@@ -1552,6 +1658,21 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       saveIGPosts();
       renderInstagramTimeline();
       refs.igInsights.textContent = "Data IG berhasil direset.";
+    });
+
+    refs.igPuzzleUpload.addEventListener("change", function (e) {
+      addIGPuzzleImages(e.target.files);
+      e.target.value = "";
+    });
+
+    refs.clearIgPuzzle.addEventListener("click", function () {
+      clearIGPuzzleImages(true);
+    });
+
+    refs.igPuzzleGrid.addEventListener("click", function (e) {
+      const removeBtn = e.target.closest("button[data-ig-puzzle-remove]");
+      if (!removeBtn) return;
+      removeIGPuzzleImageById(removeBtn.dataset.igPuzzleRemove);
     });
 
     refs.title.addEventListener("input", function () {
