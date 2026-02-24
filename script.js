@@ -178,6 +178,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     let activeDashboard = "tasks";
     let currentUser = null;
     let currentProfile = null;
+    let igPuzzleDragId = "";
 
     function normalizeTask(raw) {
       return {
@@ -429,6 +430,45 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       }
     }
 
+    function clearIGPuzzleDragState() {
+      igPuzzleDragId = "";
+      if (!refs.igPuzzleGrid) return;
+      refs.igPuzzleGrid.querySelectorAll(".ig-puzzle-item.dragging, .ig-puzzle-item.drop-target").forEach(function (el) {
+        el.classList.remove("dragging", "drop-target");
+      });
+    }
+
+    function swapIGPuzzleImages(fromIndex, toIndex) {
+      if (fromIndex === toIndex) return false;
+      if (fromIndex < 0 || toIndex < 0) return false;
+      if (fromIndex >= igPuzzleImages.length || toIndex >= igPuzzleImages.length) return false;
+      const temp = igPuzzleImages[fromIndex];
+      igPuzzleImages[fromIndex] = igPuzzleImages[toIndex];
+      igPuzzleImages[toIndex] = temp;
+      renderIGPuzzleGrid();
+      saveIGPuzzleImages();
+      return true;
+    }
+
+    function moveIGPuzzleImageById(sourceId, targetId) {
+      const fromIndex = igPuzzleImages.findIndex(function (item) {
+        return item.id === sourceId;
+      });
+      const toIndex = igPuzzleImages.findIndex(function (item) {
+        return item.id === targetId;
+      });
+      return swapIGPuzzleImages(fromIndex, toIndex);
+    }
+
+    function moveIGPuzzleImageByOffset(id, offset) {
+      const fromIndex = igPuzzleImages.findIndex(function (item) {
+        return item.id === id;
+      });
+      if (fromIndex < 0) return false;
+      const toIndex = fromIndex + Number(offset || 0);
+      return swapIGPuzzleImages(fromIndex, toIndex);
+    }
+
     function renderIGPuzzleGrid() {
       if (!refs.igPuzzleGrid) return;
       const imageCount = igPuzzleImages.length;
@@ -444,9 +484,15 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
       const imageHtml = igPuzzleImages.map(function (item, idx) {
         const name = item.name ? ` title="${escapeHtml(item.name)}"` : "";
+        const disablePrev = idx === 0 ? " disabled" : "";
+        const disableNext = idx === imageCount - 1 ? " disabled" : "";
         return `
-          <article class="ig-puzzle-item"${name}>
+          <article class="ig-puzzle-item" data-ig-puzzle-id="${item.id}" draggable="true"${name}>
             <img src="${item.url}" alt="Preview puzzle ${idx + 1}" loading="lazy">
+            <div class="ig-puzzle-actions">
+              <button class="ig-puzzle-move" type="button" data-ig-puzzle-move="prev" data-ig-puzzle-id="${item.id}" aria-label="Geser gambar ke kiri"${disablePrev}>&lt;</button>
+              <button class="ig-puzzle-move" type="button" data-ig-puzzle-move="next" data-ig-puzzle-id="${item.id}" aria-label="Geser gambar ke kanan"${disableNext}>&gt;</button>
+            </div>
             <button class="ig-puzzle-remove" type="button" data-ig-puzzle-remove="${item.id}" aria-label="Hapus gambar">x</button>
             <span class="ig-puzzle-index">#${idx + 1}</span>
           </article>
@@ -459,11 +505,11 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
       refs.igPuzzleGrid.innerHTML = imageHtml + placeholderHtml;
       refs.igPuzzleHint.textContent = imageCount >= 9
-        ? "Urutan terbaru berada di kiri atas. Grid siap untuk review puzzle 3x3."
-        : "Urutan terbaru berada di kiri atas. Lengkapi hingga 9 gambar untuk lihat puzzle 3x3 penuh.";
+        ? "Puzzle siap. Geser gambar dengan drag-drop atau tombol < > untuk atur urutan."
+        : "Upload lalu atur urutan gambar. Lengkapi hingga 9 gambar untuk lihat puzzle 3x3 penuh.";
     }
 
-    function addIGPuzzleImages(fileList) {
+    async function addIGPuzzleImages(fileList) {
       if (!fileList || !fileList.length) return;
 
       const validImages = Array.from(fileList).filter(function (file) {
@@ -482,17 +528,25 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       }
 
       const selectedImages = validImages.slice(0, remainingSlots);
-      const newItems = selectedImages.map(function (file) {
-        return {
-          id: crypto.randomUUID(),
-          name: String(file.name || "IG Image"),
-          url: URL.createObjectURL(file),
-          createdAt: new Date().toISOString()
-        };
-      });
+      refs.igPuzzleHint.textContent = "Memproses gambar...";
+      try {
+        const newItems = await Promise.all(selectedImages.map(async function (file) {
+          const dataUrl = await readFileAsDataUrl(file);
+          return {
+            id: crypto.randomUUID(),
+            name: String(file.name || "IG Image"),
+            url: dataUrl,
+            createdAt: new Date().toISOString()
+          };
+        }));
 
-      igPuzzleImages = newItems.concat(igPuzzleImages);
-      renderIGPuzzleGrid();
+        igPuzzleImages = newItems.concat(igPuzzleImages);
+        renderIGPuzzleGrid();
+        saveIGPuzzleImages();
+      } catch (_) {
+        refs.igPuzzleHint.textContent = "Gagal memproses gambar. Coba file lain.";
+        return;
+      }
 
       if (validImages.length > selectedImages.length) {
         refs.igPuzzleHint.textContent = `Sebagian gambar dilewati karena batas maksimal ${IG_PUZZLE_MAX_IMAGES} gambar.`;
@@ -507,14 +561,18 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       const [removed] = igPuzzleImages.splice(idx, 1);
       revokeIGPuzzleImageUrl(removed);
       renderIGPuzzleGrid();
+      saveIGPuzzleImages();
     }
 
-    function clearIGPuzzleImages(withConfirm) {
+    function clearIGPuzzleImages(withConfirm, shouldPersist) {
       const shouldAsk = withConfirm !== false;
+      const saveAfterClear = shouldPersist !== false;
       if (shouldAsk && igPuzzleImages.length && !confirm("Hapus semua gambar puzzle feed?")) return false;
       igPuzzleImages.forEach(revokeIGPuzzleImageUrl);
       igPuzzleImages = [];
+      clearIGPuzzleDragState();
       renderIGPuzzleGrid();
+      if (saveAfterClear) saveIGPuzzleImages();
       return true;
     }
 
@@ -889,7 +947,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       setProfileStatus("Data profil disimpan per akun dan tetap ada setelah logout.");
       tasks = loadTasks(currentUser.email).map(normalizeTask);
       igPosts = loadIGPosts(currentUser.email).map(normalizeIGPost);
-      clearIGPuzzleImages(false);
+      clearIGPuzzleImages(false, false);
+      igPuzzleImages = loadIGPuzzleImages(currentUser.email);
       financeEntries = loadFinanceEntries(currentUser.email).map(normalizeFinanceEntry);
       showDashboard(activeDashboard);
       if (!refs.igDate.value) refs.igDate.value = new Date().toISOString().slice(0, 10);
@@ -909,7 +968,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       currentProfile = null;
       tasks = [];
       igPosts = [];
-      clearIGPuzzleImages(false);
+      clearIGPuzzleImages(false, false);
       financeEntries = [];
       activeDashboard = "tasks";
       localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -1715,8 +1774,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       refs.igInsights.textContent = "Data IG berhasil direset.";
     });
 
-    refs.igPuzzleUpload.addEventListener("change", function (e) {
-      addIGPuzzleImages(e.target.files);
+    refs.igPuzzleUpload.addEventListener("change", async function (e) {
+      await addIGPuzzleImages(e.target.files);
       e.target.value = "";
     });
 
@@ -1725,10 +1784,63 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     });
 
     refs.igPuzzleGrid.addEventListener("click", function (e) {
+      const moveBtn = e.target.closest("button[data-ig-puzzle-move][data-ig-puzzle-id]");
+      if (moveBtn) {
+        const offset = moveBtn.dataset.igPuzzleMove === "prev" ? -1 : 1;
+        moveIGPuzzleImageByOffset(moveBtn.dataset.igPuzzleId, offset);
+        return;
+      }
+
       const removeBtn = e.target.closest("button[data-ig-puzzle-remove]");
       if (!removeBtn) return;
       removeIGPuzzleImageById(removeBtn.dataset.igPuzzleRemove);
     });
+
+    refs.igPuzzleGrid.addEventListener("dragstart", function (e) {
+      const item = e.target.closest(".ig-puzzle-item[data-ig-puzzle-id]");
+      if (!item) return;
+      igPuzzleDragId = item.dataset.igPuzzleId || "";
+      item.classList.add("dragging");
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        try {
+          e.dataTransfer.setData("text/plain", igPuzzleDragId);
+        } catch (_) {}
+      }
+    });
+
+    refs.igPuzzleGrid.addEventListener("dragover", function (e) {
+      const targetItem = e.target.closest(".ig-puzzle-item[data-ig-puzzle-id]");
+      if (!targetItem) return;
+      const targetId = targetItem.dataset.igPuzzleId || "";
+      if (!igPuzzleDragId || targetId === igPuzzleDragId) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      refs.igPuzzleGrid.querySelectorAll(".ig-puzzle-item.drop-target").forEach(function (el) {
+        if (el !== targetItem) el.classList.remove("drop-target");
+      });
+      targetItem.classList.add("drop-target");
+    });
+
+    refs.igPuzzleGrid.addEventListener("drop", function (e) {
+      const targetItem = e.target.closest(".ig-puzzle-item[data-ig-puzzle-id]");
+      if (!targetItem) {
+        clearIGPuzzleDragState();
+        return;
+      }
+      e.preventDefault();
+      const fallbackSource = e.dataTransfer ? e.dataTransfer.getData("text/plain") : "";
+      const sourceId = igPuzzleDragId || fallbackSource;
+      const targetId = targetItem.dataset.igPuzzleId || "";
+      if (!sourceId || !targetId || sourceId === targetId) {
+        clearIGPuzzleDragState();
+        return;
+      }
+      moveIGPuzzleImageById(sourceId, targetId);
+      clearIGPuzzleDragState();
+    });
+
+    refs.igPuzzleGrid.addEventListener("dragend", clearIGPuzzleDragState);
 
     refs.title.addEventListener("input", function () {
       const text = refs.title.value;
