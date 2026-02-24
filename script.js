@@ -8,6 +8,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const STATUS_ORDER = ["To Do", "In Progress", "Review", "Done"];
     const PRIORITY_ORDER = { High: 1, Medium: 2, Low: 3 };
     const DESIGN_REPORT_THRESHOLD = 5;
+    const DESIGN_PROJECT_NEW_DAYS = 7;
     const IG_WEEKLY_TARGET = 5;
     const IG_PUZZLE_MAX_IMAGES = 30;
     const IG_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -112,6 +113,9 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       reportMeta: document.getElementById("reportMeta"),
       doneOnlyReport: document.getElementById("doneOnlyReport"),
       waPreview: document.getElementById("waPreview"),
+      designGroupCount: document.getElementById("designGroupCount"),
+      designGroupList: document.getElementById("designGroupList"),
+      designGroupHint: document.getElementById("designGroupHint"),
       copyWaReport: document.getElementById("copyWaReport"),
       openWaReport: document.getElementById("openWaReport"),
       waStatus: document.getElementById("waStatus"),
@@ -1025,6 +1029,24 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
     }
 
+    function formatDateTime(dateStr) {
+      if (!dateStr) return "-";
+      const d = new Date(dateStr);
+      if (Number.isNaN(d.getTime())) return "-";
+      return d.toLocaleString("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function toMs(dateStr) {
+      const ms = new Date(String(dateStr || "")).getTime();
+      return Number.isFinite(ms) ? ms : 0;
+    }
+
     function isOverdue(task) {
       if (!task.dueDate || task.status === "Done") return false;
       const due = new Date(task.dueDate + "T23:59:59").getTime();
@@ -1449,6 +1471,69 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       refs.waStatus.textContent = unlocked
         ? "Report aktif. Gunakan Salin/Kirim ke WA untuk membuat laporan harian."
         : `Tambah ${remaining} tugas desain lagi untuk aktifkan fitur report WA.`;
+      renderDesignProjectGroups();
+    }
+
+    function renderDesignProjectGroups() {
+      if (!refs.designGroupList || !refs.designGroupHint || !refs.designGroupCount) return;
+
+      const designTasks = tasks
+        .filter(t => t.type === "Graphic Design")
+        .sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+
+      if (designTasks.length < DESIGN_REPORT_THRESHOLD) {
+        const remaining = DESIGN_REPORT_THRESHOLD - designTasks.length;
+        refs.designGroupCount.textContent = "0 group";
+        refs.designGroupList.innerHTML = "";
+        refs.designGroupHint.textContent = `Grouping akan aktif saat project desain mencapai ${DESIGN_REPORT_THRESHOLD} item. Tambah ${remaining} lagi.`;
+        return;
+      }
+
+      const groups = [];
+      for (let i = 0; i < designTasks.length; i += DESIGN_REPORT_THRESHOLD) {
+        groups.push(designTasks.slice(i, i + DESIGN_REPORT_THRESHOLD));
+      }
+
+      const nowMs = Date.now();
+      const newProjectLimitMs = DESIGN_PROJECT_NEW_DAYS * 86400000;
+      refs.designGroupCount.textContent = `${groups.length} group`;
+      refs.designGroupList.innerHTML = groups.map((group, groupIndex) => {
+        const dateMs = group
+          .map(item => toMs(item.createdAt))
+          .filter(ms => ms > 0);
+        const newest = dateMs.length ? Math.max(...dateMs) : 0;
+        const oldest = dateMs.length ? Math.min(...dateMs) : 0;
+        const rangeText = newest && oldest
+          ? (newest === oldest
+            ? new Date(newest).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+            : `${new Date(newest).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })} - ${new Date(oldest).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })}`)
+          : "-";
+
+        const rows = group.map(task => {
+          const createdMs = toMs(task.createdAt);
+          const isNew = createdMs > 0 && (nowMs - createdMs) <= newProjectLimitMs;
+          return `
+            <div class="design-group-item">
+              <span class="design-group-item-title">${escapeHtml(task.title)}</span>
+              <span class="design-group-item-date">${formatDateTime(task.createdAt)}</span>
+              <span class="design-project-badge ${isNew ? "is-new" : "is-old"}">${isNew ? "Baru" : "Lama"}</span>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <article class="design-group-card card-enter" style="animation-delay:${Math.min(groupIndex * 0.04, 0.24)}s;">
+            <div class="design-group-card-head">
+              <b>Group ${groupIndex + 1}</b>
+              ${groupIndex === 0 ? "<span class='design-group-tag latest'>Batch terbaru</span>" : "<span class='design-group-tag'>Batch arsip</span>"}
+            </div>
+            <div class="design-group-card-meta">Tanggal batch: ${rangeText}</div>
+            <div class="design-group-items">${rows}</div>
+          </article>
+        `;
+      }).join("");
+
+      refs.designGroupHint.textContent = `Project desain dikelompokkan per ${DESIGN_REPORT_THRESHOLD} item. Label Baru berlaku untuk project dalam ${DESIGN_PROJECT_NEW_DAYS} hari terakhir.`;
     }
 
     function rerender() {
