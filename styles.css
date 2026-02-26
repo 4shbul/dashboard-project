@@ -1102,6 +1102,11 @@
       min-width: 160px;
     }
 
+    .toolbar > button.btn {
+      width: auto;
+      flex: 0 0 auto;
+    }
+
     .view-switch {
       display: flex;
       gap: 6px;
@@ -1317,6 +1322,8 @@
 
     .p-web { background: #e5eeff; color: #2d58bf; }
     .p-design { background: #ffebd8; color: #9f5b00; }
+    .p-project { background: #edf3ff; color: #35588f; border: 1px solid #d7e3fb; }
+    .p-project-count { background: #eaf2ff; color: #2f5293; border: 1px solid #d2e1fb; }
     .f-income { background: #dcf8ec; color: #0e7f50; }
     .f-expense { background: #ffe1e9; color: #a52443; }
     .prio-high { background: #ffe1e9; color: #a52443; }
@@ -1434,6 +1441,43 @@
       color: #5b6f8f;
       font-size: 0.74rem;
       line-height: 1.35;
+    }
+
+    .project-group-row td {
+      background: #f7fbff;
+      border-bottom: 1px solid #dfeafb;
+    }
+
+    .project-group-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .project-group-head b {
+      font-size: 0.86rem;
+      color: #213d67;
+    }
+
+    .project-group-date {
+      margin-top: 2px;
+      color: #5e7292;
+    }
+
+    .project-group-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .project-empty-row td {
+      background: #fcfdff;
+      border-bottom: 1px solid #e9f0fb;
+      padding-top: 8px;
+      padding-bottom: 8px;
     }
 
     .empty {
@@ -1627,6 +1671,10 @@
       .toolbar > input,
       .toolbar > select {
         min-width: 100%;
+        flex: 1 1 100%;
+      }
+      .toolbar > button.btn {
+        width: 100%;
         flex: 1 1 100%;
       }
       .view-switch { width: 100%; }

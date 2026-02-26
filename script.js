@@ -1,6 +1,7 @@
 const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const IG_STORAGE_PREFIX = "taskflow_ig_posts_v1";
     const IG_PUZZLE_STORAGE_PREFIX = "taskflow_ig_puzzle_v1";
+    const PROJECT_STORAGE_PREFIX = "taskflow_projects_v1";
     const FINANCE_STORAGE_PREFIX = "taskflow_finance_v1";
     const PROFILE_STORAGE_PREFIX = "taskflow_profile_v1";
     const USERS_STORAGE_KEY = "taskflow_users_v1";
@@ -9,6 +10,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     const PRIORITY_ORDER = { High: 1, Medium: 2, Low: 3 };
     const DESIGN_REPORT_THRESHOLD = 5;
     const DESIGN_PROJECT_NEW_DAYS = 7;
+    const DEFAULT_PROJECT_NAME = "General";
     const IG_WEEKLY_TARGET = 5;
     const IG_PUZZLE_MAX_IMAGES = 30;
     const IG_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -99,6 +101,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       activeViewText: document.getElementById("activeViewText"),
       taskForm: document.getElementById("taskForm"),
       title: document.getElementById("title"),
+      projectName: document.getElementById("projectName"),
+      projectNameList: document.getElementById("projectNameList"),
       type: document.getElementById("type"),
       priority: document.getElementById("priority"),
       status: document.getElementById("status"),
@@ -151,6 +155,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       filterType: document.getElementById("filterType"),
       filterStatus: document.getElementById("filterStatus"),
       filterPriority: document.getElementById("filterPriority"),
+      tableGroupMode: document.getElementById("tableGroupMode"),
+      createProjectBtn: document.getElementById("createProjectBtn"),
       tableBtn: document.getElementById("tableBtn"),
       kanbanBtn: document.getElementById("kanbanBtn"),
       tableView: document.getElementById("tableView"),
@@ -175,19 +181,27 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     };
 
     let tasks = [];
+    let projectGroups = [];
     let igPosts = [];
     let igPuzzleImages = [];
     let financeEntries = [];
     let activeView = "table";
+    let tableGroupingMode = "flat";
     let activeDashboard = "tasks";
     let currentUser = null;
     let currentProfile = null;
     let igPuzzleDragId = "";
 
+    function normalizeProjectName(value) {
+      const cleaned = String(value || "").trim().replace(/\s+/g, " ");
+      return cleaned || DEFAULT_PROJECT_NAME;
+    }
+
     function normalizeTask(raw) {
       return {
         id: raw.id || crypto.randomUUID(),
         title: String(raw.title || "").trim(),
+        project: normalizeProjectName(raw.project || raw.projectName || ""),
         type: raw.type === "Graphic Design" ? "Graphic Design" : "Web Development",
         priority: ["High", "Medium", "Low"].includes(raw.priority) ? raw.priority : "Medium",
         status: STATUS_ORDER.includes(raw.status) ? raw.status : "To Do",
@@ -200,12 +214,26 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       };
     }
 
+    function normalizeProject(raw) {
+      const name = normalizeProjectName(raw && raw.name ? raw.name : "");
+      if (!name) return null;
+      return {
+        id: raw && raw.id ? raw.id : crypto.randomUUID(),
+        name,
+        createdAt: raw && raw.createdAt ? raw.createdAt : new Date().toISOString()
+      };
+    }
+
     function normalizeEmail(email) {
       return String(email || "").trim().toLowerCase();
     }
 
     function getTaskStorageKey(email) {
       return `${TASK_STORAGE_PREFIX}_${normalizeEmail(email)}`;
+    }
+
+    function getProjectStorageKey(email) {
+      return `${PROJECT_STORAGE_PREFIX}_${normalizeEmail(email)}`;
     }
 
     function getIGStorageKey(email) {
@@ -903,9 +931,96 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       }
     }
 
+    function loadProjects(email) {
+      try {
+        const raw = localStorage.getItem(getProjectStorageKey(email));
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map(normalizeProject).filter(Boolean);
+      } catch (_) {
+        return [];
+      }
+    }
+
     function saveTasks() {
       if (!currentUser) return;
       localStorage.setItem(getTaskStorageKey(currentUser.email), JSON.stringify(tasks));
+    }
+
+    function saveProjects() {
+      if (!currentUser) return;
+      localStorage.setItem(getProjectStorageKey(currentUser.email), JSON.stringify(projectGroups));
+    }
+
+    function getProjectList() {
+      const map = new Map();
+      projectGroups.forEach(function (project) {
+        const key = normalizeProjectName(project.name).toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, normalizeProject(project));
+        }
+      });
+      tasks.forEach(function (task) {
+        const name = normalizeProjectName(task.project);
+        const key = name.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, normalizeProject({ name, createdAt: task.createdAt || new Date().toISOString() }));
+        }
+      });
+      return Array.from(map.values()).sort(function (a, b) {
+        const at = toMs(a.createdAt);
+        const bt = toMs(b.createdAt);
+        if (bt !== at) return bt - at;
+        return a.name.localeCompare(b.name, "id", { sensitivity: "base" });
+      });
+    }
+
+    function registerProject(name, createdAt) {
+      const normalized = normalizeProjectName(name);
+      const key = normalized.toLowerCase();
+      const existing = projectGroups.find(function (project) {
+        return normalizeProjectName(project.name).toLowerCase() === key;
+      });
+      if (existing) return existing;
+
+      const project = normalizeProject({
+        name: normalized,
+        createdAt: createdAt || new Date().toISOString()
+      });
+      projectGroups.unshift(project);
+      saveProjects();
+      refreshProjectNameOptions();
+      return project;
+    }
+
+    function syncProjectCatalogFromTasks() {
+      let changed = false;
+      tasks.forEach(function (task) {
+        const normalized = normalizeProjectName(task.project);
+        task.project = normalized;
+        const key = normalized.toLowerCase();
+        const exists = projectGroups.some(function (project) {
+          return normalizeProjectName(project.name).toLowerCase() === key;
+        });
+        if (!exists) {
+          projectGroups.push(normalizeProject({
+            name: normalized,
+            createdAt: task.createdAt || new Date().toISOString()
+          }));
+          changed = true;
+        }
+      });
+      if (changed) saveProjects();
+      refreshProjectNameOptions();
+    }
+
+    function refreshProjectNameOptions() {
+      if (!refs.projectNameList) return;
+      const options = getProjectList().map(function (project) {
+        return `<option value="${escapeHtml(project.name)}"></option>`;
+      }).join("");
+      refs.projectNameList.innerHTML = options;
     }
 
     function loadFinanceEntries(email) {
@@ -949,7 +1064,9 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       currentProfile = loadUserProfile(currentUser);
       fillProfileForm(currentProfile);
       setProfileStatus("Data profil disimpan per akun dan tetap ada setelah logout.");
+      projectGroups = loadProjects(currentUser.email);
       tasks = loadTasks(currentUser.email).map(normalizeTask);
+      syncProjectCatalogFromTasks();
       igPosts = loadIGPosts(currentUser.email).map(normalizeIGPost);
       clearIGPuzzleImages(false, false);
       igPuzzleImages = loadIGPuzzleImages(currentUser.email);
@@ -959,6 +1076,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       if (!refs.igTime.value) refs.igTime.value = "12:00";
       if (!refs.financeDate.value) refs.financeDate.value = new Date().toISOString().slice(0, 10);
       if (!refs.financeMonth.value) refs.financeMonth.value = new Date().toISOString().slice(0, 7);
+      tableGroupingMode = refs.tableGroupMode.value === "project" ? "project" : "flat";
+      refs.projectName.value = DEFAULT_PROJECT_NAME;
       setView(activeView);
       rerender();
       rerenderFinance();
@@ -971,6 +1090,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       currentUser = null;
       currentProfile = null;
       tasks = [];
+      projectGroups = [];
       igPosts = [];
       clearIGPuzzleImages(false, false);
       financeEntries = [];
@@ -985,6 +1105,10 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       refs.signupForm.reset();
       refs.profileForm.reset();
       refs.financeForm.reset();
+      if (refs.projectNameList) refs.projectNameList.innerHTML = "";
+      refs.projectName.value = DEFAULT_PROJECT_NAME;
+      refs.tableGroupMode.value = "flat";
+      tableGroupingMode = "flat";
       refs.loginTargetDashboard.value = "tasks";
       setAuthMessage("Anda telah logout.");
     }
@@ -1252,7 +1376,11 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       const prioFilter = refs.filterPriority.value;
 
       const filtered = tasks.filter(task => {
-        const textMatch = !q || task.title.toLowerCase().includes(q) || task.notes.toLowerCase().includes(q);
+        const textMatch =
+          !q ||
+          task.title.toLowerCase().includes(q) ||
+          task.notes.toLowerCase().includes(q) ||
+          normalizeProjectName(task.project).toLowerCase().includes(q);
         const typeMatch = typeFilter === "all" || task.type === typeFilter;
         const statusMatch = statusFilter === "all" || task.status === statusFilter;
         const prioMatch = prioFilter === "all" || task.priority === prioFilter;
@@ -1273,37 +1401,111 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       });
     }
 
+    function renderTaskRow(task, idx, delayFactor) {
+      const overdueFlag = isOverdue(task) ? "<div class='small' style='color:#b22945;margin-top:4px;font-weight:700;'>Terlambat</div>" : "";
+      return `
+        <tr class="row-enter" style="animation-delay:${Math.min((idx + 1) * delayFactor, 0.35)}s;">
+          <td>
+            <b>${escapeHtml(task.title)}</b>
+            ${task.notes ? `<div class='small' style='margin-top:4px;color:#607292;'>${escapeHtml(task.notes)}</div>` : ""}
+            ${overdueFlag}
+          </td>
+          <td><span class="pill p-project">${escapeHtml(normalizeProjectName(task.project))}</span></td>
+          <td><span class="pill ${typeClass(task.type)}">${task.type}</span></td>
+          <td><span class="pill ${priorityClass(task.priority)}">${task.priority}</span></td>
+          <td><span class="status ${statusClass(task.status)}">${task.status}</span></td>
+          <td>${formatDate(task.dueDate)}</td>
+          <td>${Number(task.estimateHours || 0).toFixed(1)} jam</td>
+          <td>${Number(task.actualHours || 0).toFixed(1)} jam</td>
+          <td>${computeEfficiency(task.estimateHours, task.actualHours, task.status)}</td>
+          <td>
+            <div class="action-row">
+              <button class="mini" data-act="next" data-id="${task.id}">Next</button>
+              <button class="mini" data-act="addtime" data-id="${task.id}">+0.5h</button>
+              <button class="mini d" data-act="delete" data-id="${task.id}">Hapus</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
     function renderTable(filteredTasks) {
-      if (!filteredTasks.length) {
-        refs.taskBody.innerHTML = "<tr><td colspan='9' class='empty'>Tidak ada tugas sesuai filter.</td></tr>";
+      const totalColumns = 10;
+      if (tableGroupingMode !== "project") {
+        if (!filteredTasks.length) {
+          refs.taskBody.innerHTML = `<tr><td colspan='${totalColumns}' class='empty'>Tidak ada tugas sesuai filter.</td></tr>`;
+          return;
+        }
+        refs.taskBody.innerHTML = filteredTasks.map(function (task, idx) {
+          return renderTaskRow(task, idx, 0.035);
+        }).join("");
         return;
       }
 
-      refs.taskBody.innerHTML = filteredTasks.map((task, idx) => {
-        const overdueFlag = isOverdue(task) ? "<div class='small' style='color:#b22945;margin-top:4px;font-weight:700;'>Terlambat</div>" : "";
-        return `
-          <tr class="row-enter" style="animation-delay:${Math.min(idx * 0.035, 0.35)}s;">
-            <td>
-              <b>${escapeHtml(task.title)}</b>
-              ${task.notes ? `<div class='small' style='margin-top:4px;color:#607292;'>${escapeHtml(task.notes)}</div>` : ""}
-              ${overdueFlag}
-            </td>
-            <td><span class="pill ${typeClass(task.type)}">${task.type}</span></td>
-            <td><span class="pill ${priorityClass(task.priority)}">${task.priority}</span></td>
-            <td><span class="status ${statusClass(task.status)}">${task.status}</span></td>
-            <td>${formatDate(task.dueDate)}</td>
-            <td>${Number(task.estimateHours || 0).toFixed(1)} jam</td>
-            <td>${Number(task.actualHours || 0).toFixed(1)} jam</td>
-            <td>${computeEfficiency(task.estimateHours, task.actualHours, task.status)}</td>
-            <td>
-              <div class="action-row">
-                <button class="mini" data-act="next" data-id="${task.id}">Next</button>
-                <button class="mini" data-act="addtime" data-id="${task.id}">+0.5h</button>
-                <button class="mini d" data-act="delete" data-id="${task.id}">Hapus</button>
+      const groupedMap = {};
+      filteredTasks.forEach(function (task) {
+        const key = normalizeProjectName(task.project).toLowerCase();
+        if (!groupedMap[key]) groupedMap[key] = [];
+        groupedMap[key].push(task);
+      });
+
+      const activeFilters =
+        Boolean(String(refs.searchInput.value || "").trim()) ||
+        refs.filterType.value !== "all" ||
+        refs.filterStatus.value !== "all" ||
+        refs.filterPriority.value !== "all";
+
+      const projectList = getProjectList().filter(function (project) {
+        if (!activeFilters) return true;
+        return Boolean(groupedMap[normalizeProjectName(project.name).toLowerCase()]);
+      });
+
+      if (!projectList.length) {
+        refs.taskBody.innerHTML = `<tr><td colspan='${totalColumns}' class='empty'>Tidak ada project sesuai filter.</td></tr>`;
+        return;
+      }
+
+      const nowMs = Date.now();
+      const newProjectLimitMs = DESIGN_PROJECT_NEW_DAYS * 86400000;
+      refs.taskBody.innerHTML = projectList.map(function (project, groupIdx) {
+        const projectName = normalizeProjectName(project.name);
+        const projectKey = projectName.toLowerCase();
+        const tasksInProject = groupedMap[projectKey] || [];
+        const newestTaskMs = tasksInProject.reduce(function (max, task) {
+          return Math.max(max, toMs(task.createdAt));
+        }, 0);
+        const markerMs = Math.max(toMs(project.createdAt), newestTaskMs);
+        const markerIso = markerMs ? new Date(markerMs).toISOString() : "";
+        const isNew = markerMs > 0 && (nowMs - markerMs) <= newProjectLimitMs;
+        const header = `
+          <tr class="project-group-row row-enter" style="animation-delay:${Math.min(groupIdx * 0.04, 0.24)}s;">
+            <td colspan="${totalColumns}">
+              <div class="project-group-head">
+                <div>
+                  <b>${escapeHtml(projectName)}</b>
+                  <div class="small project-group-date">Tanggal: ${formatDateTime(markerIso)}</div>
+                </div>
+                <div class="project-group-meta">
+                  <span class="pill p-project-count">${tasksInProject.length} tugas</span>
+                  <span class="design-project-badge ${isNew ? "is-new" : "is-old"}">${isNew ? "Baru" : "Lama"}</span>
+                </div>
               </div>
             </td>
           </tr>
         `;
+
+        if (!tasksInProject.length) {
+          return header + `
+            <tr class="project-empty-row row-enter" style="animation-delay:${Math.min((groupIdx * 0.04) + 0.02, 0.3)}s;">
+              <td colspan="${totalColumns}" class="small" style="color:#5f7392;">Belum ada tugas di project ini.</td>
+            </tr>
+          `;
+        }
+
+        const rows = tasksInProject.map(function (task, idx) {
+          return renderTaskRow(task, idx, 0.018);
+        }).join("");
+        return header + rows;
       }).join("");
     }
 
@@ -1323,6 +1525,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
               <span class="status ${statusClass(task.status)}">${task.status}</span>
             </div>
             <div class="mobile-task-pills">
+              <span class="pill p-project">${escapeHtml(normalizeProjectName(task.project))}</span>
               <span class="pill ${typeClass(task.type)}">${task.type}</span>
               <span class="pill ${priorityClass(task.priority)}">${task.priority}</span>
               ${overdue ? "<span class='pill m-overdue'>Terlambat</span>" : ""}
@@ -1614,7 +1817,12 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     }
 
     function downloadJson() {
-      const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: "application/json" });
+      const payload = {
+        version: 2,
+        tasks,
+        projects: projectGroups
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       const stamp = new Date().toISOString().slice(0, 10);
@@ -1633,9 +1841,21 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       reader.onload = function () {
         try {
           const data = JSON.parse(String(reader.result || "[]"));
-          if (!Array.isArray(data)) throw new Error("invalid");
-          tasks = data.map(normalizeTask);
+          if (Array.isArray(data)) {
+            tasks = data.map(normalizeTask);
+            syncProjectCatalogFromTasks();
+          } else if (data && typeof data === "object" && Array.isArray(data.tasks)) {
+            tasks = data.tasks.map(normalizeTask);
+            const importedProjects = Array.isArray(data.projects)
+              ? data.projects.map(normalizeProject).filter(Boolean)
+              : [];
+            projectGroups = importedProjects;
+            syncProjectCatalogFromTasks();
+          } else {
+            throw new Error("invalid");
+          }
           saveTasks();
+          saveProjects();
           rerender();
           alert("Import berhasil.");
         } catch (_) {
@@ -1939,9 +2159,11 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     refs.taskForm.addEventListener("submit", function (e) {
       e.preventDefault();
       if (!currentUser) return;
+      const projectName = normalizeProjectName(refs.projectName.value);
       const task = normalizeTask({
         id: crypto.randomUUID(),
         title: refs.title.value.trim(),
+        project: projectName,
         type: refs.type.value,
         priority: refs.priority.value,
         status: refs.status.value,
@@ -1955,10 +2177,12 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
 
       if (!task.title) return;
       tasks.push(task);
+      registerProject(projectName, task.createdAt);
       saveTasks();
       rerender();
 
       refs.taskForm.reset();
+      refs.projectName.value = projectName;
       refs.status.value = "To Do";
       refs.priority.value = "Medium";
       refs.estimateHours.value = "1";
@@ -2043,14 +2267,14 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       if (!currentUser) return;
       const plusDays = d => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
       tasks = [
-        { title: "Integrasi auth JWT + refresh token", type: "Web Development", priority: "High", status: "In Progress", dueDate: plusDays(1), estimateHours: 6, actualHours: 3, notes: "Tambahkan role guard halaman admin" },
-        { title: "Optimasi Core Web Vitals landing page", type: "Web Development", priority: "Medium", status: "Review", dueDate: plusDays(2), estimateHours: 4, actualHours: 4, notes: "Target LCP < 2.5s" },
-        { title: "Fix validasi checkout multi-step", type: "Web Development", priority: "High", status: "To Do", dueDate: plusDays(0), estimateHours: 3, actualHours: 0.5, notes: "Perbaiki edge case field kosong" },
-        { title: "Desain konten carousel edukasi", type: "Graphic Design", priority: "Medium", status: "Done", dueDate: plusDays(-1), estimateHours: 2.5, actualHours: 2.2, notes: "10 slide + cover" },
-        { title: "Revisi logo campaign Q2", type: "Graphic Design", priority: "High", status: "Review", dueDate: plusDays(3), estimateHours: 3, actualHours: 2.4, notes: "2 opsi warna sekunder" },
-        { title: "Template feed promo paket bundle", type: "Graphic Design", priority: "Medium", status: "In Progress", dueDate: plusDays(2), estimateHours: 3, actualHours: 1.2, notes: "Format 1080x1080" },
-        { title: "Desain thumbnail studi kasus", type: "Graphic Design", priority: "Low", status: "To Do", dueDate: plusDays(4), estimateHours: 1.5, actualHours: 0, notes: "Untuk Behance project page" },
-        { title: "Motion teaser produk baru", type: "Graphic Design", priority: "High", status: "Done", dueDate: plusDays(1), estimateHours: 5, actualHours: 4.2, notes: "Durasi 15 detik, format reels" }
+        { title: "Integrasi auth JWT + refresh token", project: "Portal Client v2", type: "Web Development", priority: "High", status: "In Progress", dueDate: plusDays(1), estimateHours: 6, actualHours: 3, notes: "Tambahkan role guard halaman admin" },
+        { title: "Optimasi Core Web Vitals landing page", project: "Portal Client v2", type: "Web Development", priority: "Medium", status: "Review", dueDate: plusDays(2), estimateHours: 4, actualHours: 4, notes: "Target LCP < 2.5s" },
+        { title: "Fix validasi checkout multi-step", project: "Checkout Sprint", type: "Web Development", priority: "High", status: "To Do", dueDate: plusDays(0), estimateHours: 3, actualHours: 0.5, notes: "Perbaiki edge case field kosong" },
+        { title: "Desain konten carousel edukasi", project: "Campaign Edukasi Q1", type: "Graphic Design", priority: "Medium", status: "Done", dueDate: plusDays(-1), estimateHours: 2.5, actualHours: 2.2, notes: "10 slide + cover" },
+        { title: "Revisi logo campaign Q2", project: "Campaign Edukasi Q1", type: "Graphic Design", priority: "High", status: "Review", dueDate: plusDays(3), estimateHours: 3, actualHours: 2.4, notes: "2 opsi warna sekunder" },
+        { title: "Template feed promo paket bundle", project: "Promo Paket Bundle", type: "Graphic Design", priority: "Medium", status: "In Progress", dueDate: plusDays(2), estimateHours: 3, actualHours: 1.2, notes: "Format 1080x1080" },
+        { title: "Desain thumbnail studi kasus", project: "Portfolio Behance", type: "Graphic Design", priority: "Low", status: "To Do", dueDate: plusDays(4), estimateHours: 1.5, actualHours: 0, notes: "Untuk Behance project page" },
+        { title: "Motion teaser produk baru", project: "Promo Paket Bundle", type: "Graphic Design", priority: "High", status: "Done", dueDate: plusDays(1), estimateHours: 5, actualHours: 4.2, notes: "Durasi 15 detik, format reels" }
       ].map(item => normalizeTask({
         ...item,
         id: crypto.randomUUID(),
@@ -2059,6 +2283,7 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
       }));
 
       saveTasks();
+      syncProjectCatalogFromTasks();
       rerender();
     });
 
@@ -2080,6 +2305,20 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     refs.exportJson.addEventListener("click", downloadJson);
     refs.importJson.addEventListener("click", function () { refs.importFile.click(); });
     refs.importFile.addEventListener("change", function (e) { importJsonFile(e.target.files[0]); e.target.value = ""; });
+    refs.createProjectBtn.addEventListener("click", function () {
+      if (!currentUser) return;
+      const raw = prompt("Nama project baru:");
+      if (raw === null) return;
+      const name = String(raw || "").trim();
+      if (!name) return;
+      const project = registerProject(name);
+      refs.projectName.value = project.name;
+      refs.type.value = "Graphic Design";
+      tableGroupingMode = "project";
+      refs.tableGroupMode.value = "project";
+      setView("table");
+      rerender();
+    });
     refs.clearAll.addEventListener("click", function () {
       if (!confirm("Hapus semua tugas?")) return;
       tasks = [];
@@ -2090,6 +2329,13 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     [refs.searchInput, refs.filterType, refs.filterStatus, refs.filterPriority].forEach(el => {
       el.addEventListener("input", rerender);
       el.addEventListener("change", rerender);
+    });
+    refs.tableGroupMode.addEventListener("change", function () {
+      tableGroupingMode = refs.tableGroupMode.value === "project" ? "project" : "flat";
+      rerender();
+    });
+    refs.projectName.addEventListener("change", function () {
+      refs.projectName.value = normalizeProjectName(refs.projectName.value);
     });
 
     [refs.financeSearch, refs.financeFilterType, refs.financeFilterMethod, refs.financeMonth].forEach(el => {
@@ -2112,6 +2358,8 @@ const TASK_STORAGE_PREFIX = "taskflow_pro_v2";
     }, 1000);
     updateClock();
     updateInstagramRealtimeStatus();
+    refs.tableGroupMode.value = "flat";
+    refs.projectName.value = DEFAULT_PROJECT_NAME;
     setView("table");
     switchAuthTab("login");
     if (!restoreSession()) {

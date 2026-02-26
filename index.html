@@ -166,6 +166,11 @@
               <label for="title">Nama Tugas</label>
               <input id="title" required placeholder="Contoh: Desain social media carousel">
             </div>
+            <div>
+              <label for="projectName">Project</label>
+              <input id="projectName" list="projectNameList" placeholder="Contoh: Brand Campaign Ramadhan">
+              <datalist id="projectNameList"></datalist>
+            </div>
             <div class="row">
               <div>
                 <label for="type">Kategori</label>
@@ -376,6 +381,11 @@
             <option value="Medium">Medium</option>
             <option value="Low">Low</option>
           </select>
+          <select id="tableGroupMode">
+            <option value="flat">Tabel Normal</option>
+            <option value="project">Group per Project</option>
+          </select>
+          <button class="btn soft" type="button" id="createProjectBtn" style="width:auto; padding:9px 12px;">Project Baru</button>
           <div class="view-switch">
             <button id="tableBtn" class="active" type="button">Table</button>
             <button id="kanbanBtn" type="button">Kanban</button>
@@ -409,6 +419,7 @@
               <thead>
                 <tr>
                   <th>Tugas</th>
+                  <th>Project</th>
                   <th>Kategori</th>
                   <th>Prioritas</th>
                   <th>Status</th>
